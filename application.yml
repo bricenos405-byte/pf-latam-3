@@ -1,0 +1,15 @@
+server:
+  port: 10000
+  address: 0.0.0.0
+lavalink:
+  server:
+    password: youshallnotpass123
+    sources:
+      youtube: true
+      soundcloud: true
+      http: true
+    bufferDurationMs: 400
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5
+    youtubeSearchEnabled: true
+    gc-warnings: false
