@@ -3,3 +3,4 @@ yt-dlp
 pynacl
 Flask
 imageio-ffmpeg
+bgutil-ytdlp-pot-provider
