@@ -27,9 +27,9 @@ async def on_ready():
     await bot.tree.sync()
     print("✅ Comandos sincronizados")
     nodes = [
-    wavelink.Node(uri="https://lavalink.jirayu.net:443", password="youshallnotpass"),
-    wavelink.Node(uri="https://lavalink.ams.serenetia.com:443", password="AmicaOS"),
+    wavelink.Node(uri="http://lavalink.jirayu.net:2333", password="youshallnotpass", secure=False),
     wavelink.Node(uri="https://lava-v4.oops.wtf:443", password="oops.wtf"),
+    wavelink.Node(uri="http://5.178.111.207:2000", password="youshallnotpass", secure=False),
     ]
     await wavelink.Pool.connect(client=bot, nodes=nodes)
     print("🔄 Conectando Lavalink...")
