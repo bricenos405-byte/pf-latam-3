@@ -1,59 +1,77 @@
+import os
 import discord
 from discord.ext import commands
-import datetime
-import json
-import os
-from flask import Flask
-from threading import Thread
-
-app = Flask('')
-@app.route('/')
-def home():
-    return "PF LATAM 3 - ONLINE 24/7"
-def run():
-    app.run(host='0.0.0.0',port=8080)
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
+from discord import app_commands
+import asyncio
+from datetime import datetime
+import yt_dlp
+from keep_alive import keep_alive
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# --- SISTEMA DE PONTO ---
 pontos = {}
 
 class PontoView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+
+    @discord.ui.button(label="Iniciar Expediente", style=discord.ButtonStyle.green)
+    async def iniciar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pontos[interaction.user.id] = {"inicio": datetime.now(), "pausa": None, "total_pausa": 0}
+        await interaction.response.send_message(f"✅ {interaction.user.mention} Expediente iniciado!", ephemeral=True)
+
     @discord.ui.button(label="Pausar", style=discord.ButtonStyle.blurple)
     async def pausar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("⏸️ Pausado", ephemeral=True)
-    @discord.ui.button(label="Terminar", style=discord.ButtonStyle.red)
-    async def terminar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        user_id = str(interaction.user.id)
-        if user_id in pontos:
-            inicio = datetime.datetime.fromisoformat(pontos[user_id]["inicio"])
-            agora = datetime.datetime.now()
-            total = agora - inicio
-            h = int(total.total_seconds() // 3600)
-            m = int((total.total_seconds() % 3600) // 60)
-            del pontos[user_id]
-            embed = discord.Embed(title="📁 Bate-ponto Finalizado", description=f"**Usuario:** {interaction.user.mention}\n**Inicio:** {inicio.strftime('%d/%m %H:%M')}\n**Fin:** {agora.strftime('%d/%m %H:%M')}\n\n**Tiempo Total: {h}h {m}min**", color=0x00ff00)
-            await interaction.response.edit_message(embed=embed, view=None)
+        if interaction.user.id in pontos:
+            pontos[interaction.user.id]["pausa"] = datetime.now()
+            await interaction.response.send_message("⏸️ Pausado", ephemeral=True)
 
-@bot.event
-async def on_ready():
-    print(f"Bot {bot.user} online")
-    await bot.tree.sync()
+    @discord.ui.button(label="Finalizar", style=discord.ButtonStyle.red)
+    async def finalizar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id in pontos:
+            inicio = pontos[interaction.user.id]["inicio"]
+            tiempo = datetime.now() - inicio
+            horas = tiempo.total_seconds() / 3600
+            await interaction.response.send_message(f"✅ {interaction.user.mention} Trabajaste {horas:.2f} horas", ephemeral=True)
+            del pontos[interaction.user.id]
 
 @bot.tree.command(name="ponto", description="Bate tu ponto")
 async def ponto(interaction: discord.Interaction):
-    agora = datetime.datetime.now()
-    user_id = str(interaction.user.id)
-    pontos[user_id] = {"inicio": agora.isoformat()}
-    embed = discord.Embed(title="📂 Bate-ponto PF LATAM 3", description=f"**Usuario:** {interaction.user.mention}\n**Inicio:** {agora.strftime('%d de %B de %Y %H:%M')}\n**Pausa:** --\n**Tiempo:** 0h 0min\n**Status:** 🟢 En servicio", color=0x0099ff)
-    embed.set_footer(text="PF LATAM 3 • Nyox Store")
+    embed = discord.Embed(title="⏰ Sistema de Ponto", description="Controla tu expediente", color=0x00ff00)
     await interaction.response.send_message(embed=embed, view=PontoView())
 
+# --- SISTEMA DE MUSICA ---
+@bot.tree.command(name="play", description="Reproduce música")
+async def play(interaction: discord.Interaction, cancion: str):
+    await interaction.response.defer()
+
+    if not interaction.user.voice:
+        await interaction.followup.send("❌ Debes estar en un canal de voz!")
+        return
+
+    channel = interaction.user.voice.channel
+    if not interaction.guild.voice_client:
+        await channel.connect()
+
+    voice_client = interaction.guild.voice_client
+
+    ydl_opts = {'format': 'bestaudio', 'noplaylist': True, 'quiet': True}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"ytsearch:{cancion}", download=False)['entries'][0]
+        url = info['url']
+        title = info['title']
+
+    source = discord.FFmpegPCMAudio(url, before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5", options="-vn")
+    voice_client.play(source)
+    await interaction.followup.send(f"🎵 Reproduciendo: **{title}**")
+
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print(f"Bot {bot.user} online - Comandos sincronizados")
+
 keep_alive()
-bot.run(os.getenv("DISCORD_TOKEN"))
+bot.run(os.getenv('DISCORD_TOKEN'))
