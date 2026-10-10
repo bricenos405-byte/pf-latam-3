@@ -1,68 +1,101 @@
 import discord
 from discord.ext import commands
 import wavelink
+import asyncio
 import os
-from flask import Flask
-import threading
-
-app = Flask(__name__)
-@app.route('/')
-def home():
-    return "PF LATAM 03 - BOT ONLINE"
-
-def run_flask():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
-threading.Thread(target=run_flask, daemon=True).start()
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-intents.guilds = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+TOKEN = os.getenv("DISCORD_TOKEN") or "TU_TOKEN_AQUI"
 
 @bot.event
 async def on_ready():
-    print(f"✅ BOT LISTO: {bot.user}")
-    await bot.tree.sync()
-    print("✅ Comandos sincronizados")
+    print(f"BOT LISTO ✅ {bot.user}")
     nodes = [
-    wavelink.Node(uri="http://lavalink.jirayu.net:2333", password="youshallnotpass", secure=False),
-    wavelink.Node(uri="https://lava-v4.oops.wtf:443", password="oops.wtf"),
-    wavelink.Node(uri="http://5.178.111.207:2000", password="youshallnotpass", secure=False),
+        wavelink.Node(uri="http://lavalink.jirayu.net:2333", password="youshallnotpass"),
+        wavelink.Node(uri="https://lava-v4.oops.wtf:443", password="oops.wtf"),
+        wavelink.Node(uri="http://5.178.111.207:2000", password="youshallnotpass"),
     ]
-    await wavelink.Pool.connect(client=bot, nodes=nodes)
-    print("🔄 Conectando Lavalink...")
+    await wavelink.Pool.connect(nodes=nodes, client=bot, cache_capacity=100)
+    print("NODOS INTENTANDO CONECTAR...")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Comandos sincronizados: {len(synced)}")
+    except Exception as e:
+        print(e)
 
 @bot.event
 async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
-    print(f"🔥 NODO CONECTADO: {payload.node.uri} - LISTO PARA MUSICA")
+    print(f"NODO CONECTADO ✅ {payload.node.uri}")
 
-@bot.tree.command(name="play", description="Reproduce una cancion")
-async def play(interaction: discord.Interaction, cancion: str):
-    if not interaction.user.voice or not interaction.user.voice.channel:
-        await interaction.response.send_message("❌ Métete a voz primero!", ephemeral=True)
+@bot.event
+async def on_wavelink_track_end(payload: wavelink.TrackEndEventPayload):
+    if payload.player:
+        if not payload.player.queue.is_empty:
+            await payload.player.play(payload.player.queue.get())
+
+@bot.hybrid_command(name="play", description="Reproduce una canción")
+async def play(ctx: commands.Context, *, query: str):
+    if not ctx.guild:
         return
-    if not wavelink.Pool.nodes or not wavelink.Pool.nodes[0].is_connected:
-        await interaction.response.send_message("⏳ Conectando música... espera 20s y prueba de nuevo", ephemeral=True)
+
+    if not ctx.author.voice:
+        await ctx.send("¡Métete a un canal de voz primero, mi ñaño! 🎤", ephemeral=True)
         return
-    await interaction.response.defer()
-    channel = interaction.user.voice.channel
-    player = interaction.guild.voice_client
-    if not player:
-        player = await channel.connect(cls=wavelink.Player, self_deaf=True)
-    tracks = await wavelink.Pool.fetch_tracks(f'ytsearch:{cancion}')
+
+    if not ctx.voice_client:
+        await ctx.author.voice.channel.connect(cls=wavelink.Player)
+    else:
+        if ctx.voice_client.channel!= ctx.author.voice.channel:
+            await ctx.voice_client.move_to(ctx.author.voice.channel)
+
+    player: wavelink.Player = ctx.voice_client
+
+    await ctx.defer()
+
+    tracks = await wavelink.Playable.search(query)
+
     if not tracks:
-        await interaction.followup.send("❌ No encontré")
+        await ctx.send(f"No encontré nada para: {query} 😢")
         return
-    await player.play(tracks[0])
-    await interaction.followup.send(f"🎵 Reproduciendo: **{tracks[0].title}**")
 
-@bot.tree.command(name="stop", description="Para")
-async def stop(interaction: discord.Interaction):
-    player = interaction.guild.voice_client
-    if player:
-        await player.disconnect()
-    await interaction.response.send_message("⏹️ Listo")
+    track = tracks[0]
 
-bot.run(os.getenv("DISCORD_TOKEN"))
+    if player.playing:
+        player.queue.put(track)
+        await ctx.send(f"Agregada a la cola: **{track.title}**")
+    else:
+        await player.play(track)
+        await ctx.send(f"Reproduciendo ahora: **{track.title}** 🎶")
+
+@bot.hybrid_command(name="stop", description="Detiene la música y se sale")
+async def stop(ctx: commands.Context):
+    if ctx.voice_client:
+        await ctx.voice_client.disconnect()
+        await ctx.send("Me fui, mi rey! 👋")
+    else:
+        await ctx.send("No estoy en voz")
+
+@bot.hybrid_command(name="skip", description="Salta la canción")
+async def skip(ctx: commands.Context):
+    if ctx.voice_client and ctx.voice_client.playing:
+        await ctx.voice_client.stop()
+        await ctx.send("⏭️ Siguiente!")
+
+@bot.hybrid_command(name="pause", description="Pausa la música")
+async def pause(ctx: commands.Context):
+    if ctx.voice_client:
+        await ctx.voice_client.pause(True)
+        await ctx.send("⏸️ Pausado")
+
+@bot.hybrid_command(name="resume", description="Reanuda la música")
+async def resume(ctx: commands.Context):
+    if ctx.voice_client:
+        await ctx.voice_client.pause(False)
+        await ctx.send("▶️ Reanudando!")
+
+bot.run(TOKEN)
