@@ -1,14 +1,13 @@
 import discord
 from discord.ext import commands
-import yt_dlp
-import asyncio
+import wavelink
+import os
 from flask import Flask
 import threading
-import os
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot Online!"
+def home(): return "PF LATAM 03 Bot Online!"
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
@@ -18,77 +17,75 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Servidor Lavalink gratis (no se cae)
+LAVA_HOST = "lava-v4.ajieblogs.eu.org"
+LAVA_PORT = 443
+LAVA_PASS = "https://dsc.gg/ajidevserver"
+LAVA_SECURE = True
+
 @bot.event
 async def on_ready():
     print(f"Listo: {bot.user}")
+    await bot.tree.sync()
+    print("Comandos sincronizados")
+    # Conectar a Lavalink
     try:
-        synced = await bot.tree.sync()
-        print(f"Sincronizados {len(synced)} comandos")
+        node = wavelink.Node(uri=f'{"https" if LAVA_SECURE else "http"}://{LAVA_HOST}:{LAVA_PORT}', password=LAVA_PASS, secure=LAVA_SECURE)
+        await wavelink.Pool.connect(client=bot, nodes=[node])
+        print(f"Lavalink conectado: {LAVA_HOST}")
     except Exception as e:
-        print(e)
+        print(f"Error Lavalink: {e}")
 
-def get_audio(query, use_sc=False):
-    import imageio_ffmpeg as ffmpeg_bin
-    ffmpeg_exe = ffmpeg_bin.get_ffmpeg_exe()
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'noplaylist': True,
-        'quiet': True,
-        'default_search': 'scsearch' if use_sc else 'ytsearch',
-        'source_address': '0.0.0.0',
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'web'],
-                'po_token': ['web+bgutil', 'ios+bgutil']
-            }
-        }
-    }
-    prefix = "scsearch1:" if use_sc else "ytsearch1:"
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"{prefix}{query}", download=False)
-        entry = info['entries'][0] if 'entries' in info else info
-        return entry, ffmpeg_exe
+@bot.event
+async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
+    print(f"Nodo Lavalink listo: {payload.node.identifier}")
 
 @bot.tree.command(name="play", description="Reproduce una cancion")
 async def play(interaction: discord.Interaction, cancion: str):
-    await interaction.response.defer()
     if not interaction.user.voice:
-        await interaction.followup.send("❌ Métete a un canal de voz primero!")
+        await interaction.response.send_message("❌ Métete a un canal de voz primero!", ephemeral=True)
         return
+
+    await interaction.response.defer()
     channel = interaction.user.voice.channel
-    vc = interaction.guild.voice_client
-    if not vc:
-        vc = await channel.connect()
-    elif vc.channel!= channel:
-        await vc.move_to(channel)
 
     try:
-        loop = asyncio.get_event_loop()
-        try:
-            print("Intentando YouTube...")
-            info, ffmpeg_exe = await loop.run_in_executor(None, lambda: get_audio(cancion, False))
-        except Exception as e:
-            print(f"YouTube bloqueado, cambiando a SoundCloud: {e}")
-            await interaction.followup.send("⚠️ YouTube bloqueó Render, probando en SoundCloud...")
-            info, ffmpeg_exe = await loop.run_in_executor(None, lambda: get_audio(cancion, True))
+        player = await channel.connect(cls=wavelink.Player, self_deaf=True)
+    except:
+        player = interaction.guild.voice_client
 
-        url = info['url']
-        title = info.get('title', cancion)
-        source = discord.FFmpegPCMAudio(url, executable=ffmpeg_exe, before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5", options="-vn")
-        if vc.is_playing():
-            vc.stop()
-        vc.play(source)
-        await interaction.followup.send(f"🎵 Reproduciendo: **{title}**")
-    except Exception as e:
-        print(f"ERROR FINAL: {e}")
-        await interaction.followup.send(f"❌ Error: {e}")
+    if not player:
+        await interaction.followup.send("❌ No pude conectarme a voz")
+        return
 
-@bot.tree.command(name="stop", description="Para la musica")
+    # Buscar en YouTube via Lavalink (el bypass definitivo)
+    tracks = await wavelink.Pool.fetch_tracks(f'ytsearch:{cancion}')
+
+    if not tracks:
+        await interaction.followup.send(f"❌ No encontré: {cancion}")
+        return
+
+    track = tracks[0]
+    await player.play(track)
+
+    await interaction.followup.send(f"🎵 Reproduciendo: **{track.title}** - {track.author}")
+
+@bot.tree.command(name="stop", description="Para la musica y desconecta")
 async def stop(interaction: discord.Interaction):
-    if interaction.guild.voice_client:
-        await interaction.guild.voice_client.disconnect()
-        await interaction.response.send_message("⏹️ Parado")
+    player = interaction.guild.voice_client
+    if player:
+        await player.disconnect()
+        await interaction.response.send_message("⏹️ Música parada y desconectado")
     else:
         await interaction.response.send_message("No estoy en voz")
+
+@bot.tree.command(name="skip", description="Salta la cancion")
+async def skip(interaction: discord.Interaction):
+    player: wavelink.Player = interaction.guild.voice_client
+    if player and player.playing:
+        await player.stop()
+        await interaction.response.send_message("⏭️ Siguiente!")
+    else:
+        await interaction.response.send_message("No hay nada sonando")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
