@@ -1,6 +1,3 @@
 discord.py[voice]
-yt-dlp
-pynacl
+wavelink
 Flask
-imageio-ffmpeg
-bgutil-ytdlp-pot-provider
