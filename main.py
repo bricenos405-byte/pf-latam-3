@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands
-import random, os
+import datetime
+import json
+import os
 from flask import Flask
 from threading import Thread
 
@@ -8,45 +10,50 @@ app = Flask('')
 @app.route('/')
 def home():
     return "PF LATAM 3 - ONLINE 24/7"
-def run(): app.run(host='0.0.0.0', port=8080)
+def run():
+    app.run(host='0.0.0.0',port=8080)
 def keep_alive():
     t = Thread(target=run)
     t.start()
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.voice_states = True
-intents.members = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-chistes = [
-"Un maracucho: ¡Vergación dame una fría! ¿Polar o Zulia? ¡No, fría de temperatura!",
-"¿En qué se parece un borracho colombiano a un venezolano? Dicen 'la última y me voy' y se van a las 6am",
-"El miche entra como amigo, habla como abogado y sale como dueño de la casa",
-"Venezolano en Medellín: Parce, ¿qué es chamo? Como parce pero más pana, vale",
-"Un paisa tomando: Este guaro está suave, es que es miche venezolano, pega retroactivo"
-]
+pontos = {}
+
+class PontoView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    @discord.ui.button(label="Pausar", style=discord.ButtonStyle.blurple)
+    async def pausar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("⏸️ Pausado", ephemeral=True)
+    @discord.ui.button(label="Terminar", style=discord.ButtonStyle.red)
+    async def terminar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = str(interaction.user.id)
+        if user_id in pontos:
+            inicio = datetime.datetime.fromisoformat(pontos[user_id]["inicio"])
+            agora = datetime.datetime.now()
+            total = agora - inicio
+            h = int(total.total_seconds() // 3600)
+            m = int((total.total_seconds() % 3600) // 60)
+            del pontos[user_id]
+            embed = discord.Embed(title="📁 Bate-ponto Finalizado", description=f"**Usuario:** {interaction.user.mention}\n**Inicio:** {inicio.strftime('%d/%m %H:%M')}\n**Fin:** {agora.strftime('%d/%m %H:%M')}\n\n**Tiempo Total: {h}h {m}min**", color=0x00ff00)
+            await interaction.response.edit_message(embed=embed, view=None)
 
 @bot.event
 async def on_ready():
-    print(f"PF LATAM 3 conectado como {bot.user}")
+    print(f"Bot {bot.user} online")
     await bot.tree.sync()
 
-@bot.tree.command(name="chiste", description="Chiste colombiano y venezolano")
-async def chiste(interaction: discord.Interaction):
-    await interaction.response.send_message(random.choice(chistes))
-
-@bot.tree.command(name="ponto", description="Registra tu ponto")
+@bot.tree.command(name="ponto", description="Bate tu ponto")
 async def ponto(interaction: discord.Interaction):
-    await interaction.response.send_message(f"✅ {interaction.user.mention} Ponto registrado en PF LATAM 3 🥃")
-
-@bot.tree.command(name="play", description="Reproduce música")
-async def play(interaction: discord.Interaction, cancion: str):
-    await interaction.response.send_message(f"🎵 Buscando: **{cancion}**")
-
-@bot.tree.command(name="ticket-setup", description="Configura tickets")
-async def ticket_setup(interaction: discord.Interaction):
-    await interaction.response.send_message("🎫 Sistema de tickets PF LATAM 3 configurado")
+    agora = datetime.datetime.now()
+    user_id = str(interaction.user.id)
+    pontos[user_id] = {"inicio": agora.isoformat()}
+    embed = discord.Embed(title="📂 Bate-ponto PF LATAM 3", description=f"**Usuario:** {interaction.user.mention}\n**Inicio:** {agora.strftime('%d de %B de %Y %H:%M')}\n**Pausa:** --\n**Tiempo:** 0h 0min\n**Status:** 🟢 En servicio", color=0x0099ff)
+    embed.set_footer(text="PF LATAM 3 • Nyox Store")
+    await interaction.response.send_message(embed=embed, view=PontoView())
 
 keep_alive()
-bot.run(os.getenv("TOKEN"))
+bot.run(os.getenv("DISCORD_TOKEN"))
