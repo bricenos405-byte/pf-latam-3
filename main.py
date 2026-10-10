@@ -35,39 +35,37 @@ async def play(interaction: discord.Interaction, cancion: str):
         vc = await channel.connect()
     elif vc.channel!= channel:
         await vc.move_to(channel)
-
     try:
         import imageio_ffmpeg as ffmpeg_bin
         ffmpeg_exe = ffmpeg_bin.get_ffmpeg_exe()
-
         ydl_opts = {
             'format': 'bestaudio/best',
             'noplaylist': True,
             'quiet': True,
-            'no_warnings': True,
-            'default_search': 'ytsearch',
             'source_address': '0.0.0.0',
-            'extractor_args': {'youtube': {'player_client': ['android']}},
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'android', 'web'],
+                    'po_token': ['web+bgutil', 'ios+bgutil', 'android+bgutil']
+                }
+            }
         }
-
         def search():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"ytsearch1:{cancion}", download=False)
                 return info['entries'][0]
-
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, search)
         url = info['url']
         title = info.get('title', cancion)
-
         source = discord.FFmpegPCMAudio(url, executable=ffmpeg_exe, before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5", options="-vn")
         if vc.is_playing():
             vc.stop()
         vc.play(source)
         await interaction.followup.send(f"🎵 Reproduciendo: **{title}**")
     except Exception as e:
-        print(f"ERROR PLAY: {e}")
-        await interaction.followup.send(f"❌ Error: {e}")
+        print(f"ERROR: {e}")
+        await interaction.followup.send(f"❌ Error YouTube bloqueó: {e}")
 
 @bot.tree.command(name="stop", description="Para la musica")
 async def stop(interaction: discord.Interaction):
